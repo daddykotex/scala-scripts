@@ -1,0 +1,4 @@
+/Users/David.Francoeur/.ivy2/local/com.disneystreaming.smithy4s/smithy4s-core_2.13/dev-SNAPSHOT/jars/smithy4s-core_2.13.jar
+/Users/David.Francoeur/.ivy2/local/com.disneystreaming.alloy/alloy-core/0.1.2/jars/alloy-core.jar
+/Users/David.Francoeur/.ivy2/local/com.disneystreaming.alloy/alloy-core/0.1.2/srcs/alloy-core-sources.jar
+/Users/David.Francoeur/.ivy2/local/com.disneystreaming.alloy/alloy-core/0.1.2/docs/alloy-core-javadoc.jar
