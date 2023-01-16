@@ -65,3 +65,4 @@ version
 
 .direnv
 result/
+.scala-build
