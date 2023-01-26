@@ -17,24 +17,39 @@ import scala.concurrent.duration._
   *
   * Is there are way to ensure the that the queue is drained or a timeout
   * occurs.
+  *
+  * Thanks to @Baccata:
+  * https://gist.github.com/Baccata/a19c7ec68882f989cb33f281908dcf88
   */
 object Main extends IOApp.Simple {
 
-  val makeQueue = Resource.eval(Queue.bounded[IO, String](10))
+  val makeQueue = Resource.eval(Queue.bounded[IO, Option[String]](10))
   val prog = for {
     _ <- Resource.eval(IO.println("start"))
     q <- makeQueue
-    _ <- Resource.eval(q.offer("first"))
-    _ <- Async[IO].background(
+    _ <- Resource.eval(q.offer(Some("first")))
+    _ <-
       fs2.Stream
-        .fromQueueUnterminated(q)
+        .fromQueueNoneTerminated(q)
         .evalTap(IO.println)
         .compile
         .drain
-    )
-    _ <- Resource.eval(
-      IO.sleep(2.seconds)
-    ) // let it drain // if you comment this line, `first` is not printed
+        .background
+        .flatMap { waitForOutcome =>
+          // On finalization, wait for the consumption of everything that'll
+          // have been queued by offering a None and waiting to receive
+          // it on the other end
+          //
+          // Remember that finalizers are executed in reverse.
+          // Think of the movie Tenet.
+          Resource.onFinalize {
+            q.offer(None) >>
+              waitForOutcome.void.timeout(5.seconds)
+          }
+        }
+    // _ <- Resource.eval(
+    //   IO.sleep(2.seconds)
+    // ) // let it drain // if you comment this line, `first` is not printed
     _ <- Resource.eval(IO.println("finish"))
   } yield ()
 
