@@ -4,6 +4,7 @@
 import software.amazon.smithy.model.Model
 import scala.jdk.CollectionConverters._
 import software.amazon.smithy.model.shapes.ShapeId
+import software.amazon.smithy.model.traits.DefaultTrait
 
 object Main extends App {
   val model = Model
@@ -16,6 +17,7 @@ object Main extends App {
           |  member: Integer
           |}
           |
+          |@range(min: 1)
           |integer MyInt
           |structure IndirectInt {
           |  member: MyInt
@@ -26,8 +28,12 @@ object Main extends App {
     .unwrap()
   println(
     model.expectShape(ShapeId.from("atest#DirectInt$member")).getAllTraits()
-  )
+  ) // {}
+  val indirect = model.expectShape(ShapeId.from("atest#IndirectInt$member"))
   println(
-    model.expectShape(ShapeId.from("atest#IndirectInt$member")).getAllTraits()
-  )
+    indirect.getAllTraits()
+  ) // {smithy.api#default=Trait `smithy.api#default`, defined at defaults.smithy [10, 3]}
+  println(
+    indirect.getTrait(classOf[DefaultTrait]).get().toNode()
+  ) // 0
 }
