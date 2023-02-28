@@ -9,60 +9,29 @@ import com.github.arturopala.gitignore.GitIgnore
 import cats.implicits._
 import fs2._
 import java.nio.file.NoSuchFileException
+import NestedFilter._
+
+case class NestedFilter(
+    build: BuildFileFilter,
+    previous: Option[FileFilter]
+) {
+  def getFilter(p: io.file.Path): IO[FileFilter] = build(p).map {
+    case None             => previous.getOrElse(_ => true)
+    case Some(fileFilter) => fileFilter
+  }
+}
+object NestedFilter {
+  type FileFilter = io.file.Path => Boolean
+  type GetFileFilter = IO[Option[FileFilter]]
+
+  type Dir = io.file.Path
+  type BuildFileFilter = Dir => GetFileFilter
+}
 
 object Main extends IOApp.Simple {
   val fs2Files = io.file.Files[IO]
 
   override def run: IO[Unit] = {
-    val workDir =
-      io.file.Path("/Users/David.Francoeur/workspace/dev/scala-scripts")
-    walkGit(workDir)
-      .evalTap(p => IO.println(workDir.relativize(p)))
-      .compile
-      .drain
-  }
-
-  def walkGit(
-      start: io.file.Path,
-      maxDepth: Int = Int.MaxValue
-  ): fs2.Stream[IO, io.file.Path] = {
-    def go(
-        _start: io.file.Path,
-        maxDepth: Int,
-        gitIgnore: Option[GitIgnore]
-    ): fs2.Stream[IO, io.file.Path] = {
-      Stream.emit(_start) ++ {
-        if (maxDepth == 0) Stream.empty
-        Stream
-          .eval(fs2Files.getBasicFileAttributes(_start, followLinks = false))
-          .flatMap { attr =>
-            if (attr.isDirectory)
-              fs2.Stream.eval(getGitIgnore(_start)).flatMap {
-                currentGitIgnore =>
-                  val finalGitIgnore = currentGitIgnore.orElse(gitIgnore)
-                  def allowed(p: io.file.Path): Boolean = {
-                    val relativePath = start.relativize(p).toString
-                    finalGitIgnore.exists(_.isAllowed(relativePath))
-                  }
-
-                  fs2Files
-                    .list(_start)
-                    .filter(allowed)
-                    .flatMap { path =>
-                      go(
-                        path,
-                        maxDepth - 1,
-                        finalGitIgnore
-                      )
-                    }
-                    .mask
-              }
-            else
-              Stream.empty
-          }
-      }
-    }
-
     def getGitIgnore(dir: io.file.Path): IO[Option[GitIgnore]] = {
       fs2Files
         .readUtf8(dir./(".gitignore"))
@@ -72,10 +41,68 @@ object Main extends IOApp.Simple {
         .handleError { case _: NoSuchFileException => None }
     }
 
+    // Given a directory, check for the gitignore file
+    // if there, return Some(filter*)
+    // else return None
+    // filter is a predicate that return true if the file is _not_ gitignore, otherwise false
+    fs2Files.currentWorkingDirectory.flatMap { workDir =>
+      val nestedFilter: NestedFilter = NestedFilter(
+        { dir =>
+          getGitIgnore(dir).map { maybeGitIgnore =>
+            maybeGitIgnore.map(gitIgnore => { file =>
+              gitIgnore.isAllowed(workDir.relativize(file).toString)
+            })
+          }
+        },
+        None
+      )
+
+      walkGit(workDir, nestedFilter)
+        .evalTap(IO.println)
+        .compile
+        .drain
+    }
+  }
+
+  def walkGit(
+      start: io.file.Path,
+      nestedFilter: NestedFilter,
+      maxDepth: Int = Int.MaxValue
+  ): fs2.Stream[IO, io.file.Path] = {
+    def go(
+        start: io.file.Path,
+        nestedFilter: NestedFilter,
+        maxDepth: Int
+    ): fs2.Stream[IO, io.file.Path] = {
+      Stream.emit(start) ++ {
+        if (maxDepth == 0) Stream.empty
+        Stream
+          .eval(fs2Files.getBasicFileAttributes(start, followLinks = false))
+          .flatMap { attr =>
+            if (attr.isDirectory) {
+              Stream.eval(nestedFilter.getFilter(start)).flatMap { filter =>
+                val nextLevelFilter = nestedFilter.copy(previous = Some(filter))
+                fs2Files
+                  .list(start)
+                  .filter(filter)
+                  .flatMap { path =>
+                    go(
+                      path,
+                      nextLevelFilter,
+                      maxDepth - 1
+                    )
+                  }
+                  .mask
+              }
+            } else Stream.empty
+          }
+      }
+    }
+
     Stream.eval(
       fs2Files.getBasicFileAttributes(start, followLinks = false)
     ) >> {
-      go(start, maxDepth, None)
+      go(start, nestedFilter, maxDepth)
     }
 
   }
