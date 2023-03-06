@@ -4,7 +4,7 @@
 //> using lib "org.http4s::http4s-ember-client:0.23.19-RC1"
 //> using lib "org.http4s::http4s-ember-server:0.23.19-RC1"
 
-// scala-cli run -w http4s/EmberFail1.scala
+// scala-cli run -w http4s/EmberFail2.scala
 
 import cats.effect._
 import cats.implicits._
@@ -25,20 +25,21 @@ import scala.concurrent.duration._
   *
   * If it does not, it fails.
   *
-  * The particular thing is that the body is a Stream. So the request contains a
-  * `Transfer-Encoding: chunked` header.
+  * The particular thing is that the response body is a Stream. But the weird
+  * thing is that the response is encoded as `Response(status=200,
+  * httpVersion=HTTP/1.1, headers=Headers(Content-Length: 0))`
   */
-object EmberFail1 extends IOApp.Simple {
-  def body() = fs2.Stream.emits("test".getBytes()).covary[IO]
+object EmberFail2 extends IOApp.Simple {
+  def body() =
+    fs2.Stream.emits("test".getBytes()).metered[IO](100.millis)
 
   def run: IO[Unit] = {
-    val resp = Ok().flatMap(r => IO.println(s"SERVER $r").as(r))
+    val resp =
+      Ok()
+        .map(_.withBodyStream(body()))
+        .flatMap(r => IO.println(s"SERVER $r").as(r))
 
-    val failRoutes = HttpRoutes.of[IO] {
-      case req @ POST -> Root / "test" / "post" =>
-        IO.println(s"SERVER req: $req") *> resp
-    }
-    val successRoutes = HttpRoutes.of[IO] {
+    val routes = HttpRoutes.of[IO] {
       case req @ POST -> Root / "test" / "post" =>
         IO.println(s"SERVER req: $req") *>
           req.body.compile.drain *> resp
@@ -48,8 +49,10 @@ object EmberFail1 extends IOApp.Simple {
       import clientDsl._
 
       val req =
-        POST(Uri.unsafeFromString("http://localhost:8080/test/post?param=XXX)"))
-          .withBodyStream(body())
+        POST(
+          "some body",
+          Uri.unsafeFromString("http://localhost:8080/test/post?param=XXX)")
+        )
 
       val reqResource = client.run(req)
       List.from(0 until 100).traverse_ { i =>
@@ -64,8 +67,7 @@ object EmberFail1 extends IOApp.Simple {
       .default[IO]
       .withHost(ipv4"127.0.0.1")
       .withPort(port"8080")
-      // use successRoutes to see it work
-      .withHttpApp(failRoutes.orNotFound)
+      .withHttpApp(routes.orNotFound)
       .build
       .use(_ => postRequests)
   }
