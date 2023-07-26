@@ -43,10 +43,14 @@ object Main extends IOApp.Simple {
       .compile
       .to(List)
 
+    // prints something like:
+    // 800
+    // 800
+    // 1000
   val run =
-    runFor(5.seconds)(IO.pure("hey2")).flatMap(x => IO.println(x.size)).void *>
-      runFor2(5.seconds)(IO.pure("hey2"))
+    runFor(5.seconds)(IO.unit).flatMap(x => IO.println(x.size)).void *>
+      runFor2(5.seconds)(IO.unit)
         .flatMap(x => IO.println(x.size))
         .void *>
-      runFor3(5.seconds)(IO.pure("hey2")).flatMap(x => IO.println(x.size)).void
+      runFor3(5.seconds)(IO.unit).flatMap(x => IO.println(x.size)).void
 }
