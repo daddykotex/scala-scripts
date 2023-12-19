@@ -66,7 +66,8 @@ Compilation failed
  */
 object Main extends App {
   def test(id: String): Shape = {
-    val builder =
+    val builder
+        : AbstractShapeBuilder[_ <: AbstractShapeBuilder[_, _], _ <: Shape] =
       id match {
         case "test" => StringShape.builder()
         case _      => IntegerShape.builder()
